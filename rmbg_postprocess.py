@@ -62,12 +62,12 @@ class MaskPostProcessor:
         contour_mask = np.zeros_like(mask)
         contours, _ = cv2.findContours(np.where(np.array(mask)>127,255,0).astype(np.uint8), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         largest_contour = max(contours, key=cv2.contourArea)
-        cv2.drawContours(contour_mask, [largest_contour], 0, 255, thickness=cv2.FILLED)
+        cv2.drawContours(contour_mask, [largest_contour], 0, 1, thickness=cv2.FILLED)
         return contour_mask
 
 
     # 커스텀 함수
-    def apply_custom_process(self, mask):
+    def apply_2_sigmoid_region_process(self, mask):
         '''For Remove background
         input: mask matrix(BGR or Gray) / output: mask matrix(BGR)
 
@@ -94,6 +94,36 @@ class MaskPostProcessor:
         # result_mask = self.apply_open(mask_sig_contour, erode_iter=2, dia_iter=2)
 
         return self.ch_GRAY2BGR(result_mask)
+    
+    # 커스텀 함수2
+    def apply_3_sigmoid_region_process(self, mask):
+        '''For Remove background
+        input: mask matrix(BGR or Gray) / output: mask matrix(BGR)
+
+        마스크 => sigmoid_bg, sigmoid_obj_erode, sigmoid_obj_dilate 세번 적용=>
+        sigmoid_bg에 대해서 가장 큰 contour영역 마스킹 => 
+        마스킹 erode(obj 경계선 축소), 마스킹 dilate(obj 경계선 확장) =>
+        contour의 bg, obj(축소), obj(확장) 영역에 다른 sigmoid 결과를 할당 =>
+        결과 리턴'''
+
+        if len(mask.shape) != 2:
+            mask = self.ch_BGR2GRAY(mask)
+        self.set_kernel_size(mask.shape)
+
+        mask_sig_bg = self.apply_sigmoid(mask, exp=1.02, slope=150, value_range=255, normalize=True)
+        mask_sig_obj_erode = self.apply_sigmoid(mask, exp=1.06, slope=60, value_range=255, normalize=True)
+        mask_sig_obj_dilate = mask
+        
+        contour_mask = self.get_largest_contour_mask(mask_sig_bg)
+        contour_mask_erode = self.apply_erode(contour_mask, iteration=5)
+        contour_mask_dialte = self.apply_dilate(contour_mask, iteration=3)
+
+        mask_sig_contour = np.where(contour_mask_erode == 1, mask_sig_obj_erode, np.where(contour_mask_dialte == 1, mask_sig_obj_dilate, mask_sig_bg))
+        
+        result_mask = mask_sig_contour
+        # result_mask = self.apply_open(mask_sig_contour, erode_iter=2, dia_iter=2)
+
+        return self.ch_GRAY2BGR(result_mask)
 
 
 import matplotlib.pyplot as plt
@@ -113,12 +143,12 @@ from PIL import Image
 if __name__ == "__main__":
     remover = Remover(fast=True, device="cuda")
 
-    img = Image.open("./test_img/test6.jpg")
+    img = Image.open("./test_img/test_bottle_1.jpg")
     
     mask = remover.process(img, type="map")
 
     postprocessor = MaskPostProcessor()
-    mask_processed = postprocessor.apply_custom_process(mask)
+    mask_processed = postprocessor.apply_3_sigmoid_region_process(mask)
 
     # print("mask:", mask)
     # print("mask shape:", mask.shape)
