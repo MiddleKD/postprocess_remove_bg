@@ -1,5 +1,11 @@
 import numpy as np
 import cv2
+from PIL import Image
+
+def resize_image(image, height, width):
+    # cv2의 resize는 width, height 순서로 전달해야 함
+    resized_image = cv2.resize(image, [width, height], interpolation=cv2.INTER_AREA)
+    return resized_image
 
 # 이미지 후처리 클래스
 class MaskPostProcessor:
@@ -16,6 +22,10 @@ class MaskPostProcessor:
     def ch_BGR2RGBA(self, bgr_img):
         rgba_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGBA)
         return rgba_img
+    def bgr_to_pil(self, bgr_img):
+        rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
+        return Image.fromarray(rgb_img.astype(np.uint8))
+
 
 
     # 커널 사이즈 조정
@@ -124,10 +134,16 @@ class MaskPostProcessor:
         # result_mask = self.apply_open(mask_sig_contour, erode_iter=2, dia_iter=2)
 
         return self.ch_GRAY2BGR(result_mask)
+    
+    def __call__(self, mask_pil):
+        mask = np.array(mask_pil)
+        mask_bgr = self.apply_3_sigmoid_region_process(mask)
+        mask_pil = self.bgr_to_pil(mask_bgr)
+        return mask_pil
 
 
-import matplotlib.pyplot as plt
 def visualize_green(img, mask):
+    import matplotlib.pyplot as plt
     if len(mask.shape) == 2:
         mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
     bg = ((1- mask/255.0)*[120,255,155]).astype(np.uint8)
@@ -138,25 +154,15 @@ def visualize_green(img, mask):
     plt.show()
 
 
-from transparent_background import Remover
-from PIL import Image
 if __name__ == "__main__":
+    from transparent_background import Remover
     remover = Remover(fast=True, device="cuda")
 
-    img = Image.open("./test_img/test_bottle_1.jpg")
+    img = Image.open("./test_img/test1.jpg")
     
     mask = remover.process(img, type="map")
 
     postprocessor = MaskPostProcessor()
-    mask_processed = postprocessor.apply_3_sigmoid_region_process(mask)
-
-    # print("mask:", mask)
-    # print("mask shape:", mask.shape)
-    # print("processed mask shape:", mask_processed.shape)
-
-    visualize_green(np.zeros(np.array(img).shape), mask)
-    visualize_green(np.zeros(np.array(img).shape), mask_processed)
-
-    visualize_green(img, mask)
-    visualize_green(img, mask_processed)
+    mask_processed = postprocessor(mask)
+    mask_processed.show()
     
